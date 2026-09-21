@@ -1,0 +1,7 @@
+# 参考素材（体积大，不入库）
+*.mp4
+*.mov
+
+.DS_Store
+Thumbs.db
+node_modules/
