@@ -123,19 +123,29 @@ function drawBody(ctx, rx, ry, v, lw, spec) {
 
 // ---------- 耳朵 ----------
 
+// 尖耳：底部带一段"耳根"向下延伸（藏在头后面），保证转头时耳朵和脑袋之间不露缝
 function pointyPath(ctx, er, side, k = 1, yoff = 0) {
   ctx.beginPath();
   ctx.moveTo(-er * 0.9 * k, yoff + er * 0.15);
   ctx.quadraticCurveTo(-er * 0.78 * k, yoff - er * 0.9 * k, side * er * 0.15 * k, yoff - er * 1.75 * k);
   ctx.quadraticCurveTo(er * 0.78 * k, yoff - er * 0.9 * k, er * 0.9 * k, yoff + er * 0.15);
-  ctx.quadraticCurveTo(0, yoff + er * 0.38, -er * 0.9 * k, yoff + er * 0.15);
+  ctx.quadraticCurveTo(er * 0.95 * k, yoff + er * 0.7 * k, er * 0.6 * k, yoff + er * 1.05 * k);
+  ctx.lineTo(-er * 0.6 * k, yoff + er * 1.05 * k);
+  ctx.quadraticCurveTo(-er * 0.95 * k, yoff + er * 0.7 * k, -er * 0.9 * k, yoff + er * 0.15);
   ctx.closePath();
+}
+
+// 通用耳根：一小团同色圆，压在耳朵下面、头的后面，只在有缝的地方露出来
+function earRoot(ctx, er, col, lw, seed, dx = 0, dy = 0.2) {
+  blobPath(ctx, dx * er, dy * er, er * 0.62, er * 0.6, { seed: seed + 5, amp: 0.03 });
+  fillStroke(ctx, col, lw);
 }
 
 function drawEar(ctx, x, y, type, side, er, ang, col, inner, lw, seed) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(ang);
+  if (type !== 'pointy') earRoot(ctx, er, col, lw, seed, type === 'sheep' ? side * 0.25 : type === 'floppy' ? side * 0.1 : 0, type === 'long' ? 0.35 : 0.2);
   switch (type) {
     case 'round':
       blobPath(ctx, 0, -er * 0.4, er, er * 0.95, { seed, amp: 0.03 });
@@ -175,17 +185,19 @@ function drawEar(ctx, x, y, type, side, er, ang, col, inner, lw, seed) {
   ctx.restore();
 }
 
-function drawEars(ctx, a, map, R, lw) {
+function drawEars(ctx, a, rim, R, lw) {
   const { v, s } = a;
   const e = v.ear;
-  const er = R * 0.3 * e.size;
   const inner = e.inner === 'pink' ? PINK : e.inner === 'light' ? v.light : e.inner === 'dark' ? v.dark : null;
   const col = e.color || (e.shade ? shadeHex(v.color, e.shade) : v.color);
   // 先画远侧耳朵，再画近侧
   const order = s.yaw >= 0 ? [-1, 1] : [1, -1];
   for (const side of order) {
-    const m = map(side * e.x, e.y);
-    let ang = side * (e.tilt + s.earWiggle);
+    // 耳根略微埋进轮廓里（r<1），配合耳根延伸，转到任何角度都贴着脑袋
+    const m = rim(side * e.x, e.y, { slide: 0.2, r: 0.93 });
+    // 近侧耳朵略大、远侧略小；沿轮廓滑动时顺着轮廓法线转一点
+    const er = R * 0.3 * e.size * (1 + 0.12 * side * s.yaw);
+    let ang = side * (e.tilt + s.earWiggle) + m.dphi * 0.7;
     if (v.extras.flop === side) ang += side * 0.95;
     drawEar(ctx, m.x, m.y, e.type, side, er, ang, col, inner, lw, v.seed + side * 3);
   }
@@ -193,29 +205,30 @@ function drawEars(ctx, a, map, R, lw) {
 
 // ---------- 附加结构：羊毛 / 鹿角 / 蛙眼泡 ----------
 
-function drawWool(ctx, v, map, R, lw) {
+// 羊毛帽：一圈卷卷贴着头顶轮廓。低头时帽子往额头压一点，转头基本不动（帽子套在头顶，绕竖轴转是不变的）
+function drawWool(ctx, v, rim, R, lw) {
   const wr = R * 0.2 * (v.extras.woolSize || 1);
   const woolColor = v.extras.wool || '#f4eee2';
   const top = [-0.88, -0.6, -0.32, 0, 0.32, 0.6, 0.88];
   top.forEach((nx, i) => {
-    const ny = -Math.sqrt(Math.max(0, 1 - nx * nx)) * 0.97 - 0.02;
-    const m = map(nx, ny);
+    const ny = -Math.sqrt(Math.max(0, 1 - nx * nx));
+    const m = rim(nx, ny, { slide: 0.05, r: 0.97, pitchShift: 0.12 });
     const r = wr * (0.85 + 0.3 * Math.abs(Math.sin(v.seed + i * 1.3)));
     blobPath(ctx, m.x, m.y - wr * 0.15, r * 1.05, r, { seed: v.seed + i * 7, amp: 0.06 });
     fillStroke(ctx, woolColor, lw * 0.85);
   });
   [-0.45, 0.15, 0.6].forEach((nx, i) => {
-    const ny = -Math.sqrt(Math.max(0, 1 - nx * nx)) * 0.78;
-    const m = map(nx, ny);
+    const ny = -Math.sqrt(Math.max(0, 1 - nx * nx));
+    const m = rim(nx, ny, { slide: 0.05, r: 0.78, pitchShift: 0.12 });
     blobPath(ctx, m.x, m.y, wr * 0.7, wr * 0.65, { seed: v.seed + 40 + i * 5, amp: 0.07 });
     fillStroke(ctx, woolColor, lw * 0.8);
   });
 }
 
-function drawAntlers(ctx, map, R, lw) {
+function drawAntlers(ctx, rim, R, lw) {
   const col = '#7a5a3c';
   for (const side of [-1, 1]) {
-    const b = map(side * 0.34, -0.9);
+    const b = rim(side * 0.34, -0.9, { slide: 0.15, r: 0.95 });
     const pts = [
       [[b.x, b.y], [b.x + side * R * 0.12, b.y - R * 0.35], [b.x + side * R * 0.3, b.y - R * 0.7]],
       [[b.x + side * R * 0.1, b.y - R * 0.3], [b.x + side * R * 0.36, b.y - R * 0.42]],
@@ -625,16 +638,32 @@ export function drawAnimal(ctx, a, R) {
   const lw = R * 0.048;
   const rx = R * v.headW, ry = R * v.headH;
   const yawA = s.yaw * MAX_YAW, pitchA = s.pitch * MAX_PITCH;
+  const cY = Math.cos(yawA), sY = Math.sin(yawA), cP = Math.cos(pitchA), sP = Math.sin(pitchA);
 
-  // 球面映射：名义坐标 → 转头后的屏幕位置（含透视缩放）
-  const map = (nx, ny) => {
-    const th = Math.asin(clamp(nx, -1, 1)), ph = Math.asin(clamp(ny, -1, 1));
-    return {
-      x: rx * Math.sin(th + yawA),
-      y: ry * Math.sin(ph + pitchA),
-      sx: clamp(Math.cos(th + yawA) / Math.cos(th), 0.25, 1.4),
-      sy: clamp(Math.cos(ph + pitchA) / Math.cos(ph), 0.4, 1.3),
-    };
+  // 球面映射：把名义坐标 (nx, ny) 当作单位球正面上的一点，先绕竖轴转 yaw、再绕横轴转 pitch，
+  // 然后正交投影。旋转后的单位向量投影永远落在圆盘内，所以耳朵等边缘部件不会飞出脑袋。
+  // sink<1 时把点往球心收一点（用于耳根，让它埋进头里）。
+  const map = (nx, ny, sink = 1) => {
+    nx *= sink; ny *= sink;
+    let r2 = nx * nx + ny * ny;
+    if (r2 > 1) { const k = 1 / Math.sqrt(r2); nx *= k; ny *= k; r2 = 1; }
+    const nz = Math.sqrt(1 - r2);
+    const x1 = nx * cY + nz * sY, z1 = -nx * sY + nz * cY;      // yaw：绕 Y 轴
+    const y2 = ny * cP + z1 * sP, z2 = -ny * sP + z1 * cP;      // pitch：绕 X 轴，正值=低头
+    const depth = clamp(z2 / Math.max(nz, 0.25), 0.25, 1.4);   // 朝向观众的程度 → 透视压缩
+    return { x: rx * x1, y: ry * y2, z: z2, sx: depth, sy: depth };
+  };
+
+  // 轮廓映射：耳朵、鹿角、羊毛这类"长在头顶轮廓上"的部件。若按球面旋转，近侧的会滚到脑后看不见，
+  // 所以改用经典 2D 转头视差：沿轮廓向面部相反方向轻微滑动，并始终贴在轮廓上（半径 r）。
+  const rim = (nx, ny, o = {}) => {
+    const { slide = 0.2, r = 0.94, pitchShift = 0.06 } = o;
+    const phi0 = Math.atan2(nx, -ny);           // 从头顶量起的角度，右侧为正
+    const phi = phi0 - s.yaw * slide;
+    let x = r * Math.sin(phi), y = -r * Math.cos(phi) + s.pitch * pitchShift;
+    const d = Math.hypot(x, y);
+    if (d > 0.97) { x *= 0.97 / d; y *= 0.97 / d; }
+    return { x: rx * x, y: ry * y, dphi: phi - phi0 };
   };
 
   ctx.save();
@@ -649,8 +678,8 @@ export function drawAnimal(ctx, a, R) {
   ctx.translate(0, ry * 0.9); ctx.rotate(s.roll); ctx.translate(0, -ry * 0.9);
   ctx.translate(s.yaw * rx * 0.07, s.pitch * ry * 0.06);
 
-  if (v.ear) drawEars(ctx, a, map, R, lw);
-  if (spec.extra === 'antlers' && v.extras.antlers) drawAntlers(ctx, map, R, lw);
+  if (v.ear) drawEars(ctx, a, rim, R, lw);
+  if (spec.extra === 'antlers' && v.extras.antlers) drawAntlers(ctx, rim, R, lw);
 
   const headPath = () => blobPath(ctx, 0, 0, rx, ry, { seed: v.seed, amp: 0.02, cheek: v.cheek, n: 44 });
   headPath();
@@ -666,7 +695,7 @@ export function drawAnimal(ctx, a, R) {
   drawMarkings(ctx, a, map, R, lw);
   ctx.restore();
 
-  if (spec.extra === 'wool') drawWool(ctx, v, map, R, lw);
+  if (spec.extra === 'wool') drawWool(ctx, v, rim, R, lw);
   drawFace(ctx, a, map, R, lw);
 
   ctx.restore();
